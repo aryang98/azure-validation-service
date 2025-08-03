@@ -1,382 +1,441 @@
-# Azure Functions Deployment Guide
+# Deployment Guide
 
-This guide provides step-by-step instructions for deploying the File Validation Service to Azure Functions using IntelliJ IDEA.
+This guide provides step-by-step instructions for deploying the File Validation Service to Azure.
 
 ## 📋 Prerequisites
 
-### Required Software
-- **IntelliJ IDEA** (Ultimate or Community Edition)
-- **Java 11** or higher
-- **Maven** 3.6 or higher
-- **Azure CLI** installed and configured
-- **Azure Functions Core Tools** (optional, for local testing)
+Before deploying, ensure you have:
 
-### Required Azure Resources
-- **Azure Subscription** with billing enabled
-- **Azure Storage Account** for blob storage
-- **Azure SQL Database** for metadata storage
-- **Azure Function App** (will be created during deployment)
+- Azure subscription with admin access
+- Azure CLI installed and configured
+- Azure Functions Core Tools v4.x
+- Maven 3.6+
+- Java 11+
 
-## 🚀 Deployment Steps
+## 🏗️ Azure Resources Setup
 
-### Step 1: Install Azure Toolkit for IntelliJ
+### 1. Create Resource Group
 
-1. **Open IntelliJ IDEA**
-2. **Go to File → Settings → Plugins**
-3. **Search for "Azure Toolkit for IntelliJ"**
-4. **Click Install** and restart IntelliJ
-
-### Step 2: Sign in to Azure
-
-1. **Go to Tools → Azure → Azure Sign In**
-2. **Click "Sign in"** and follow the browser authentication
-3. **Verify your subscription** appears in the Azure Explorer
-
-### Step 3: Configure Azure Resources
-
-#### 3.1 Create Azure Storage Account
-
-1. **Go to Azure Portal** (portal.azure.com)
-2. **Create a new Storage Account:**
-   ```
-   Resource Group: your-resource-group
-   Storage Account Name: yourstorageaccount
-   Location: East US
-   Performance: Standard
-   Redundancy: LRS
-   ```
-3. **After creation, get the connection string:**
-   - Go to **Access Keys**
-   - Copy the **Connection String**
-
-#### 3.2 Create Azure SQL Database
-
-1. **Create a new SQL Database:**
-   ```
-   Resource Group: your-resource-group
-   Database Name: file-validation-db
-   Server: Create new server
-   Location: East US
-   ```
-2. **Configure firewall rules** to allow your IP
-3. **Note the connection details:**
-   - Server name
-   - Database name
-   - Username
-   - Password
-
-#### 3.3 Create Azure Function App
-
-1. **In IntelliJ, go to Tools → Azure → Deploy to Azure Functions**
-2. **Click "Create Function App"**
-3. **Fill in the details:**
-   ```
-   App Name: file-validation-function-app
-   Resource Group: your-resource-group
-   Location: East US
-   Runtime Stack: Java 11
-   Hosting Plan: Consumption
-   Storage Account: yourfunctionstorageaccount
-   ```
-
-### Step 4: Configure Environment Variables
-
-#### 4.1 Update local.settings.json
-
-Replace the placeholder values in `local.settings.json`:
-
-```json
-{
-  "IsEncrypted": false,
-  "Values": {
-    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
-    "FUNCTIONS_WORKER_RUNTIME": "java",
-    "AZURE_STORAGE_CONNECTION_STRING": "YOUR_ACTUAL_STORAGE_CONNECTION_STRING",
-    "AZURE_STORAGE_ACCOUNT_NAME": "yourstorageaccount",
-    "AZURE_SQL_CONNECTION_STRING": "YOUR_ACTUAL_SQL_CONNECTION_STRING",
-    "AZURE_SQL_USERNAME": "your-sql-username",
-    "AZURE_SQL_PASSWORD": "your-sql-password",
-    "AZURE_FUNCTION_APP_NAME": "file-validation-function-app",
-    "AZURE_RESOURCE_GROUP": "your-resource-group",
-    "AZURE_REGION": "eastus",
-    "AZURE_FUNCTION_PLAN": "consumption",
-    "AZURE_FUNCTION_STORAGE_ACCOUNT": "yourfunctionstorageaccount"
-  }
-}
+```bash
+az group create --name file-validation-rg --location eastus
 ```
 
-#### 4.2 Update application.properties
+### 2. Create Storage Account
 
-Replace placeholder values in `src/main/resources/application.properties`:
+```bash
+# Create storage account
+az storage account create \
+  --name filevalidationstorage \
+  --resource-group file-validation-rg \
+  --location eastus \
+  --sku Standard_LRS \
+  --kind StorageV2
 
-```properties
-# Azure Blob Storage Configuration
-azure.storage.connection-string=${AZURE_STORAGE_CONNECTION_STRING}
-azure.storage.account-name=${AZURE_STORAGE_ACCOUNT_NAME}
-
-# Azure SQL Database Configuration
-spring.datasource.url=${AZURE_SQL_CONNECTION_STRING}
-spring.datasource.username=${AZURE_SQL_USERNAME}
-spring.datasource.password=${AZURE_SQL_PASSWORD}
+# Get connection string
+az storage account show-connection-string \
+  --name filevalidationstorage \
+  --resource-group file-validation-rg
 ```
 
-### Step 5: Build the Project
+### 3. Create Blob Container
 
-1. **Open Terminal in IntelliJ** (Alt+F12)
-2. **Run Maven build:**
-   ```bash
-   mvn clean package
-   ```
-3. **Verify the build succeeds** and creates the JAR file
+```bash
+# Get storage account key
+STORAGE_KEY=$(az storage account keys list \
+  --account-name filevalidationstorage \
+  --resource-group file-validation-rg \
+  --query '[0].value' -o tsv)
 
-### Step 6: Deploy to Azure Functions
-
-#### Method 1: Using IntelliJ Azure Toolkit
-
-1. **Right-click on the project** in Project Explorer
-2. **Select "Azure → Deploy to Azure Functions"**
-3. **Choose your Function App** from the list
-4. **Click "Deploy"**
-5. **Wait for deployment to complete**
-
-#### Method 2: Using Azure CLI
-
-1. **Open Terminal in IntelliJ**
-2. **Login to Azure:**
-   ```bash
-   az login
-   ```
-3. **Set the subscription:**
-   ```bash
-   az account set --subscription "your-subscription-id"
-   ```
-4. **Deploy the function:**
-   ```bash
-   az functionapp deployment source config-zip \
-     --resource-group your-resource-group \
-     --name file-validation-function-app \
-     --src target/file-validation-service-1.0.0.jar
-   ```
-
-#### Method 3: Using Azure Functions Core Tools
-
-1. **Install Azure Functions Core Tools:**
-   ```bash
-   npm install -g azure-functions-core-tools@4 --unsafe-perm true
-   ```
-2. **Login to Azure:**
-   ```bash
-   func azure login
-   ```
-3. **Deploy the function:**
-   ```bash
-   func azure functionapp publish file-validation-function-app
-   ```
-
-### Step 7: Configure Application Settings
-
-1. **Go to Azure Portal**
-2. **Navigate to your Function App**
-3. **Go to Configuration → Application Settings**
-4. **Add the following settings:**
-
-```
-AZURE_STORAGE_CONNECTION_STRING = YOUR_STORAGE_CONNECTION_STRING
-AZURE_STORAGE_ACCOUNT_NAME = yourstorageaccount
-AZURE_SQL_CONNECTION_STRING = YOUR_SQL_CONNECTION_STRING
-AZURE_SQL_USERNAME = your-sql-username
-AZURE_SQL_PASSWORD = your-sql-password
+# Create container
+az storage container create \
+  --name file-validation \
+  --account-name filevalidationstorage \
+  --account-key $STORAGE_KEY
 ```
 
-5. **Click "Save"**
+### 4. Create Azure SQL Database
 
-### Step 8: Test the Deployment
+```bash
+# Create SQL Server
+az sql server create \
+  --name file-validation-sql \
+  --resource-group file-validation-rg \
+  --location eastus \
+  --admin-user sqladmin \
+  --admin-password "YourStrongPassword123!"
 
-1. **Get the Function App URL** from Azure Portal
-2. **Test the health endpoint:**
-   ```bash
-   curl https://file-validation-function-app.azurewebsites.net/api/health
-   ```
-3. **Test file validation:**
-   ```bash
-   curl -X POST \
-     -F "file=@test-file.xlsx" \
-     https://file-validation-function-app.azurewebsites.net/api/validate-file
-   ```
+# Create database
+az sql db create \
+  --resource-group file-validation-rg \
+  --server file-validation-sql \
+  --name FileValidationDB \
+  --service-objective S0
 
-## 🔧 Troubleshooting
+# Get connection string
+az sql db show-connection-string \
+  --server file-validation-sql \
+  --name FileValidationDB \
+  --client ado.net
+```
 
-### Common Issues
+### 5. Configure SQL Server Firewall
 
-#### 1. Build Failures
-- **Issue:** Maven build fails
-- **Solution:** Check Java version and Maven configuration
-- **Command:** `mvn clean package -X`
+```bash
+# Allow Azure services
+az sql server firewall-rule create \
+  --resource-group file-validation-rg \
+  --server file-validation-sql \
+  --name AllowAzureServices \
+  --start-ip-address 0.0.0.0 \
+  --end-ip-address 0.0.0.0
 
-#### 2. Deployment Failures
-- **Issue:** Function App deployment fails
-- **Solution:** Check Azure credentials and resource group permissions
-- **Command:** `az account show`
+# Allow your IP (replace with your IP)
+az sql server firewall-rule create \
+  --resource-group file-validation-rg \
+  --server file-validation-sql \
+  --name AllowMyIP \
+  --start-ip-address YOUR_IP_ADDRESS \
+  --end-ip-address YOUR_IP_ADDRESS
+```
 
-#### 3. Runtime Errors
-- **Issue:** Function fails to start
-- **Solution:** Check application settings and connection strings
-- **Logs:** Check Function App logs in Azure Portal
+## 🚀 Azure Functions Deployment
 
-#### 4. Database Connection Issues
-- **Issue:** Cannot connect to SQL Database
-- **Solution:** 
-  - Check firewall rules
-  - Verify connection string format
-  - Ensure database exists
+### 1. Create Function App
 
-#### 5. Storage Connection Issues
-- **Issue:** Cannot access Blob Storage
-- **Solution:**
-  - Verify storage account exists
-  - Check connection string format
-  - Ensure container exists
+```bash
+# Create function app
+az functionapp create \
+  --name file-validation-function \
+  --resource-group file-validation-rg \
+  --consumption-plan-location eastus \
+  --runtime java \
+  --runtime-version 11 \
+  --functions-version 4 \
+  --storage-account filevalidationstorage \
+  --os-type Linux
+```
 
-### Debugging Steps
+### 2. Configure Application Settings
 
-1. **Check Function App Logs:**
-   - Go to Azure Portal → Function App → Monitor
-   - View recent executions and logs
+```bash
+# Get storage connection string
+STORAGE_CONNECTION_STRING=$(az storage account show-connection-string \
+  --name filevalidationstorage \
+  --resource-group file-validation-rg \
+  --query connectionString -o tsv)
 
-2. **Test Locally:**
-   ```bash
-   mvn spring-boot:run
-   ```
+# Get SQL connection string
+SQL_CONNECTION_STRING=$(az sql db show-connection-string \
+  --server file-validation-sql \
+  --name FileValidationDB \
+  --client ado.net | sed 's/<username>/sqladmin/' | sed 's/<password>/YourStrongPassword123!/')
 
-3. **Check Application Insights:**
-   - Enable Application Insights in Function App
-   - Monitor performance and errors
+# Set application settings
+az functionapp config appsettings set \
+  --name file-validation-function \
+  --resource-group file-validation-rg \
+  --settings \
+    AZURE_STORAGE_CONNECTION_STRING="$STORAGE_CONNECTION_STRING" \
+    AZURE_STORAGE_CONTAINER="file-validation" \
+    AZURE_SQL_CONNECTION_STRING="$SQL_CONNECTION_STRING" \
+    AZURE_SQL_USERNAME="sqladmin" \
+    AZURE_SQL_PASSWORD="YourStrongPassword123!" \
+    FUNCTIONS_WORKER_RUNTIME="java" \
+    WEBSITE_RUN_FROM_PACKAGE="1"
+```
 
-## 📊 Monitoring and Maintenance
+### 3. Deploy Function Code
 
-### Application Monitoring
+```bash
+# Build the project
+mvn clean package
 
-1. **Enable Application Insights:**
-   - Go to Function App → Application Insights
-   - Click "Enable Application Insights"
+# Deploy to Azure Functions
+func azure functionapp publish file-validation-function
+```
 
-2. **Set up Alerts:**
-   - Go to Application Insights → Alerts
-   - Create alerts for errors and performance
+## 🔧 Configuration
 
-3. **Monitor Logs:**
-   - Use Azure Monitor for centralized logging
-   - Set up log analytics workspace
+### Environment Variables
 
-### Performance Optimization
+Set these environment variables in your Azure Function App:
 
-1. **Function App Scaling:**
-   - Monitor CPU and memory usage
-   - Adjust app service plan if needed
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `AZURE_STORAGE_CONNECTION_STRING` | Azure Storage connection string | `DefaultEndpointsProtocol=https;AccountName=...` |
+| `AZURE_STORAGE_CONTAINER` | Blob container name | `file-validation` |
+| `AZURE_SQL_CONNECTION_STRING` | SQL Database connection string | `jdbc:sqlserver://...` |
+| `AZURE_SQL_USERNAME` | SQL Database username | `sqladmin` |
+| `AZURE_SQL_PASSWORD` | SQL Database password | `YourStrongPassword123!` |
 
-2. **Database Optimization:**
-   - Monitor SQL Database performance
-   - Consider scaling up for high load
+### Application Settings
 
-3. **Storage Optimization:**
-   - Monitor blob storage usage
-   - Implement lifecycle policies
+Configure these settings in Azure Portal:
 
-## 🔄 Continuous Deployment
+1. Go to Azure Portal → Function App → Configuration
+2. Add/Edit application settings
+3. Save and restart the function app
 
-### GitHub Actions (Recommended)
+## 📊 Monitoring Setup
 
-1. **Create .github/workflows/deploy.yml:**
-   ```yaml
-   name: Deploy to Azure Functions
-   on:
-     push:
-       branches: [ main ]
-   
-   jobs:
-     deploy:
-       runs-on: ubuntu-latest
-       steps:
-       - uses: actions/checkout@v2
-       
-       - name: Set up Java
-         uses: actions/setup-java@v2
-         with:
-           java-version: '11'
-           
-       - name: Build with Maven
-         run: mvn clean package
-         
-       - name: Deploy to Azure Functions
-         uses: Azure/functions-action@v1
-         with:
-           app-name: 'file-validation-function-app'
-           package: './target/file-validation-service-1.0.0.jar'
-           publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
-   ```
+### 1. Enable Application Insights
 
-2. **Add secrets to GitHub repository**
-3. **Push to main branch to trigger deployment**
+```bash
+# Create Application Insights
+az monitor app-insights component create \
+  --app file-validation-insights \
+  --location eastus \
+  --resource-group file-validation-rg \
+  --application-type web
+
+# Get instrumentation key
+INSTRUMENTATION_KEY=$(az monitor app-insights component show \
+  --app file-validation-insights \
+  --resource-group file-validation-rg \
+  --query instrumentationKey -o tsv)
+
+# Add to function app settings
+az functionapp config appsettings set \
+  --name file-validation-function \
+  --resource-group file-validation-rg \
+  --settings APPINSIGHTS_INSTRUMENTATIONKEY="$INSTRUMENTATION_KEY"
+```
+
+### 2. Configure Logging
+
+```bash
+# Enable detailed logging
+az functionapp config appsettings set \
+  --name file-validation-function \
+  --resource-group file-validation-rg \
+  --settings \
+    WEBSITE_ENABLE_APP_SERVICE_LOG="true" \
+    WEBSITE_APP_SERVICE_LOG_LEVEL="Information"
+```
+
+## 🔒 Security Configuration
+
+### 1. Enable Authentication
+
+```bash
+# Enable Azure AD authentication
+az functionapp config set \
+  --name file-validation-function \
+  --resource-group file-validation-rg \
+  --generic-configurations '{"authSettings":{"enabled":true,"unauthenticatedClientAction":"RedirectToLoginPage"}}'
+```
+
+### 2. Configure CORS (Optional)
+
+```bash
+# Allow specific origins if needed
+az functionapp cors add \
+  --name file-validation-function \
+  --resource-group file-validation-rg \
+  --allowed-origins "https://your-api-client.azurewebsites.net"
+```
+
+## 🧪 Testing Deployment
+
+### 1. Test Health Endpoint
+
+```bash
+# Get function app URL
+FUNCTION_URL=$(az functionapp show \
+  --name file-validation-function \
+  --resource-group file-validation-rg \
+  --query defaultHostName -o tsv)
+
+# Test health endpoint
+curl "https://$FUNCTION_URL/api/health"
+```
+
+### 2. Test Validation Endpoint
+
+```bash
+# Test validation endpoint
+curl -X POST "https://$FUNCTION_URL/api/validate" \
+  -H "Content-Type: application/json" \
+  -d '{"fileMetadataId": 1}'
+```
+
+## 🔄 CI/CD Pipeline
 
 ### Azure DevOps Pipeline
 
-1. **Create azure-pipelines.yml:**
-   ```yaml
-   trigger:
-   - main
-   
-   pool:
-     vmImage: 'ubuntu-latest'
-   
-   steps:
-   - task: JavaToolInstaller@0
-     inputs:
-       versionSpec: '11'
-       
-   - task: Maven@3
-     inputs:
-       mavenPomFile: 'pom.xml'
-       goals: 'clean package'
-       
-   - task: ArchiveFiles@2
-     inputs:
-       rootFolderOrFile: 'target'
-       includeRootFolder: false
-       archiveType: 'zip'
-       archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
-       
-   - task: AzureFunctionApp@1
-     inputs:
-       azureSubscription: 'Your-Azure-Subscription'
-       appName: 'file-validation-function-app'
-       package: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
+Create `azure-pipelines.yml`:
+
+```yaml
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  functionAppName: 'file-validation-function'
+  resourceGroupName: 'file-validation-rg'
+
+steps:
+- task: JavaToolInstaller@0
+  inputs:
+    versionSpec: '11'
+    jdkArchitectureOption: 'x64'
+
+- task: Maven@3
+  inputs:
+    mavenPomFile: 'pom.xml'
+    goals: 'clean package'
+    publishJUnitResults: true
+    testResultsFiles: '**/surefire-reports/TEST-*.xml'
+    javaHomeOption: 'JDKVersion'
+    jdkVersionOption: '1.11'
+
+- task: ArchiveFiles@2
+  inputs:
+    rootFolderOrFile: '$(System.DefaultWorkingDirectory)/target'
+    includeRootFolder: false
+    archiveType: 'zip'
+    archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
+    replaceExistingArchive: true
+
+- task: AzureFunctionApp@1
+  inputs:
+    azureSubscription: 'Your-Azure-Subscription'
+    appName: '$(functionAppName)'
+    package: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
+    resourceGroupName: '$(resourceGroupName)'
+```
+
+### GitHub Actions
+
+Create `.github/workflows/deploy.yml`:
+
+```yaml
+name: Deploy to Azure Functions
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Set up JDK 11
+      uses: actions/setup-java@v2
+      with:
+        java-version: '11'
+        distribution: 'adopt'
+    
+    - name: Build with Maven
+      run: mvn clean package
+    
+    - name: Deploy to Azure Functions
+      uses: Azure/functions-action@v1
+      with:
+        app-name: 'file-validation-function'
+        package: 'target/file-validation-service-1.0.0.jar'
+        publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+```
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+1. **Function App Not Starting**
+   ```bash
+   # Check logs
+   az functionapp logs tail --name file-validation-function --resource-group file-validation-rg
    ```
 
-## 📝 Post-Deployment Checklist
+2. **Database Connection Issues**
+   ```bash
+   # Test database connectivity
+   az sql db show --name FileValidationDB --server file-validation-sql --resource-group file-validation-rg
+   ```
 
-- [ ] Function App is running and accessible
-- [ ] Health endpoint returns 200 OK
-- [ ] File validation endpoint accepts uploads
-- [ ] Azure Blob Storage is accessible
-- [ ] Azure SQL Database is connected
-- [ ] Application Insights is enabled
-- [ ] Error monitoring is configured
-- [ ] Performance monitoring is set up
-- [ ] Backup strategy is implemented
-- [ ] Security policies are configured
+3. **Storage Access Issues**
+   ```bash
+   # Test storage access
+   az storage blob list --container-name file-validation --account-name filevalidationstorage
+   ```
 
-## 🆘 Support
+### Log Analysis
 
-For deployment issues:
-1. Check Azure Portal logs
-2. Review Application Insights
-3. Test locally first
-4. Verify all connection strings
-5. Check Azure resource permissions
+```bash
+# Get function app logs
+az functionapp logs download --name file-validation-function --resource-group file-validation-rg
+
+# Stream logs
+az functionapp logs tail --name file-validation-function --resource-group file-validation-rg
+```
+
+## 📈 Performance Optimization
+
+### 1. Scale Configuration
+
+```bash
+# Configure scaling
+az functionapp plan update \
+  --name file-validation-function \
+  --resource-group file-validation-rg \
+  --max-burst 200 \
+  --min-instances 1 \
+  --max-instances 10
+```
+
+### 2. Memory Configuration
+
+```bash
+# Set memory limits
+az functionapp config appsettings set \
+  --name file-validation-function \
+  --resource-group file-validation-rg \
+  --settings \
+    WEBSITE_MEMORY_LIMIT_MB="2048" \
+    JAVA_OPTS="-Xmx1536m"
+```
+
+## 🔄 Update Deployment
+
+### 1. Update Function Code
+
+```bash
+# Build and deploy updates
+mvn clean package
+func azure functionapp publish file-validation-function
+```
+
+### 2. Update Configuration
+
+```bash
+# Update application settings
+az functionapp config appsettings set \
+  --name file-validation-function \
+  --resource-group file-validation-rg \
+  --settings NEW_SETTING="new_value"
+```
+
+## 🧹 Cleanup
+
+To remove all resources:
+
+```bash
+# Delete resource group (removes all resources)
+az group delete --name file-validation-rg --yes
+```
 
 ## 📚 Additional Resources
 
 - [Azure Functions Documentation](https://docs.microsoft.com/en-us/azure/azure-functions/)
-- [Azure Toolkit for IntelliJ](https://docs.microsoft.com/en-us/azure/developer/java/toolkit-for-intellij/)
-- [Spring Boot on Azure Functions](https://docs.microsoft.com/en-us/azure/azure-functions/functions-reference-java)
-- [Azure CLI Documentation](https://docs.microsoft.com/en-us/cli/azure/) 
+- [Azure CLI Documentation](https://docs.microsoft.com/en-us/cli/azure/)
+- [Azure DevOps Pipelines](https://docs.microsoft.com/en-us/azure/devops/pipelines/)
+- [GitHub Actions](https://docs.github.com/en/actions)
+
+---
+
+**Note**: Replace placeholder values (like `YourStrongPassword123!`, `YOUR_IP_ADDRESS`) with your actual values before running the commands. 

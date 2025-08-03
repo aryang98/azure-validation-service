@@ -1,316 +1,194 @@
 package com.example.filevalidation.service;
 
-import com.example.filevalidation.exception.ValidationRuleException;
-import com.example.filevalidation.model.ValidationResult;
-import com.example.filevalidation.service.impl.ValidationServiceImpl;
+import com.example.filevalidation.dto.ValidationResponse;
+import com.example.filevalidation.exception.FileValidationException;
+import com.example.filevalidation.model.FileMetadata;
+import com.example.filevalidation.model.SalesRecord;
+import com.example.filevalidation.repository.FileMetadataRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.mock.web.MockMultipartFile;
 
-import java.util.List;
-import java.util.Arrays;
+import javax.validation.ConstraintViolation;
+import javax.validation.Validator;
+import java.io.ByteArrayInputStream;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.*;
 
 /**
- * Unit Tests for ValidationService
- * 
- * This test class provides comprehensive unit tests for the ValidationService
- * implementation, covering all validation scenarios and edge cases.
- * 
- * Test Coverage:
- * - Email validation (valid and invalid formats)
- * - Date validation (valid and invalid formats)
- * - Name validation (valid and invalid formats)
- * - ID validation (valid and invalid formats)
- * - File format validation
- * - Error handling and exception scenarios
- * 
- * @author File Validation Team
- * @version 1.0.0
- * @since 2024-01-01
+ * Unit tests for ValidationService
  */
 @ExtendWith(MockitoExtension.class)
 class ValidationServiceTest {
-
+    
+    @Mock
+    private FileMetadataRepository fileMetadataRepository;
+    
+    @Mock
+    private BlobStorageService blobStorageService;
+    
+    @Mock
+    private ExcelProcessingService excelProcessingService;
+    
+    @Mock
+    private Validator validator;
+    
     @InjectMocks
-    private ValidationServiceImpl validationService;
-
-    private MockMultipartFile validExcelFile;
-    private MockMultipartFile invalidFileFormat;
-
+    private ValidationService validationService;
+    
+    private FileMetadata testFileMetadata;
+    private List<SalesRecord> testSalesRecords;
+    
     @BeforeEach
     void setUp() {
-        // Create a valid Excel file content for testing
-        byte[] excelContent = createValidExcelContent();
-        validExcelFile = new MockMultipartFile(
-            "file", 
-            "test-data.xlsx", 
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
-            excelContent
-        );
-
-        // Create an invalid file format
-        invalidFileFormat = new MockMultipartFile(
-            "file", 
-            "test.txt", 
-            "text/plain", 
-            "invalid content".getBytes()
-        );
-    }
-
-    @Test
-    void testIsValidEmail_ValidEmails() {
-        // Test valid email formats
-        assertTrue(validationService.isValidEmail("test@example.com"));
-        assertTrue(validationService.isValidEmail("user.name@domain.co.uk"));
-        assertTrue(validationService.isValidEmail("user+tag@example.org"));
-        assertTrue(validationService.isValidEmail("123@numbers.com"));
-    }
-
-    @Test
-    void testIsValidEmail_InvalidEmails() {
-        // Test invalid email formats
-        assertFalse(validationService.isValidEmail("invalid-email"));
-        assertFalse(validationService.isValidEmail("@example.com"));
-        assertFalse(validationService.isValidEmail("user@"));
-        assertFalse(validationService.isValidEmail("user@.com"));
-        assertFalse(validationService.isValidEmail(""));
-        assertFalse(validationService.isValidEmail(null));
-    }
-
-    @Test
-    void testIsValidDate_ValidDates() {
-        // Test valid date formats
-        assertTrue(validationService.isValidDate("2024-01-01", "yyyy-MM-dd"));
-        assertTrue(validationService.isValidDate("2024-12-31", "yyyy-MM-dd"));
-        assertTrue(validationService.isValidDate("2024-02-29", "yyyy-MM-dd")); // Leap year
-    }
-
-    @Test
-    void testIsValidDate_InvalidDates() {
-        // Test invalid date formats
-        assertFalse(validationService.isValidDate("2024-13-01", "yyyy-MM-dd")); // Invalid month
-        assertFalse(validationService.isValidDate("2024-02-30", "yyyy-MM-dd")); // Invalid day
-        assertFalse(validationService.isValidDate("invalid-date", "yyyy-MM-dd"));
-        assertFalse(validationService.isValidDate("", "yyyy-MM-dd"));
-        assertFalse(validationService.isValidDate(null, "yyyy-MM-dd"));
-    }
-
-    @Test
-    void testIsValidName_ValidNames() {
-        // Test valid name formats
-        assertTrue(validationService.isValidName("John Doe"));
-        assertTrue(validationService.isValidName("Mary Jane"));
-        assertTrue(validationService.isValidName("O'Connor"));
-        assertTrue(validationService.isValidName("José María"));
-    }
-
-    @Test
-    void testIsValidName_InvalidNames() {
-        // Test invalid name formats
-        assertFalse(validationService.isValidName("John123"));
-        assertFalse(validationService.isValidName("Doe@"));
-        assertFalse(validationService.isValidName(""));
-        assertFalse(validationService.isValidName(null));
-    }
-
-    @Test
-    void testIsValidId_ValidIds() {
-        // Test valid ID formats
-        assertTrue(validationService.isValidId("ABC123"));
-        assertTrue(validationService.isValidId("123456"));
-        assertTrue(validationService.isValidId("abc123"));
-        assertTrue(validationService.isValidId("ID001"));
-    }
-
-    @Test
-    void testIsValidId_InvalidIds() {
-        // Test invalid ID formats
-        assertFalse(validationService.isValidId("ABC-123"));
-        assertFalse(validationService.isValidId("ID 001"));
-        assertFalse(validationService.isValidId(""));
-        assertFalse(validationService.isValidId(null));
-    }
-
-    @Test
-    void testGetRequiredColumns() {
-        List<String> requiredColumns = validationService.getRequiredColumns();
+        testFileMetadata = new FileMetadata();
+        testFileMetadata.setId(1L);
+        testFileMetadata.setFileName("test_sales.xlsx");
+        testFileMetadata.setFileUrl("https://storage.blob.core.windows.net/container/test_sales.xlsx");
         
-        assertNotNull(requiredColumns);
-        assertEquals(4, requiredColumns.size());
-        assertTrue(requiredColumns.contains("Email"));
-        assertTrue(requiredColumns.contains("Date"));
-        assertTrue(requiredColumns.contains("Name"));
-        assertTrue(requiredColumns.contains("ID"));
+        testSalesRecords = Arrays.asList(
+            new SalesRecord("ID001", LocalDate.now(), "dine_in", new BigDecimal("25.50"), null),
+            new SalesRecord("ID002", LocalDate.now(), "take_away", new BigDecimal("15.75"), null),
+            new SalesRecord("ID003", LocalDate.now(), "dine_in", new BigDecimal("30.00"), null)
+        );
     }
-
+    
     @Test
-    void testGetOptionalColumns() {
-        List<String> optionalColumns = validationService.getOptionalColumns();
+    void validateFile_Success() {
+        // Arrange
+        when(fileMetadataRepository.findById(1L)).thenReturn(Optional.of(testFileMetadata));
+        when(blobStorageService.downloadFile(anyString())).thenReturn(new ByteArrayInputStream("test".getBytes()));
+        when(excelProcessingService.readExcelFile(any())).thenReturn(testSalesRecords);
+        when(validator.validate(any(SalesRecord.class))).thenReturn(Collections.emptySet());
         
-        assertNotNull(optionalColumns);
-        assertEquals(3, optionalColumns.size());
-        assertTrue(optionalColumns.contains("Notes"));
-        assertTrue(optionalColumns.contains("Comments"));
-        assertTrue(optionalColumns.contains("Description"));
-    }
-
-    @Test
-    void testValidateColumn_EmailValidation() {
-        List<String> emailData = Arrays.asList(
-            "valid@example.com",
-            "invalid-email",
-            "another@test.org",
-            "not-an-email"
-        );
-
-        List<ValidationResult.ValidationError> errors = validationService.validateColumn(
-            "Email", emailData, ValidationService.ValidationType.EMAIL
-        );
-
-        assertEquals(2, errors.size());
-        assertEquals("invalid-email", errors.get(0).getInvalidValue());
-        assertEquals("not-an-email", errors.get(1).getInvalidValue());
-    }
-
-    @Test
-    void testValidateColumn_DateValidation() {
-        List<String> dateData = Arrays.asList(
-            "2024-01-01",
-            "2024-13-01",
-            "2024-02-29",
-            "invalid-date"
-        );
-
-        List<ValidationResult.ValidationError> errors = validationService.validateColumn(
-            "Date", dateData, ValidationService.ValidationType.DATE
-        );
-
-        assertEquals(2, errors.size());
-        assertEquals("2024-13-01", errors.get(0).getInvalidValue());
-        assertEquals("invalid-date", errors.get(1).getInvalidValue());
-    }
-
-    @Test
-    void testValidateColumn_NameValidation() {
-        List<String> nameData = Arrays.asList(
-            "John Doe",
-            "Mary123",
-            "Jane Smith",
-            "Bob@"
-        );
-
-        List<ValidationResult.ValidationError> errors = validationService.validateColumn(
-            "Name", nameData, ValidationService.ValidationType.NAME
-        );
-
-        assertEquals(2, errors.size());
-        assertEquals("Mary123", errors.get(0).getInvalidValue());
-        assertEquals("Bob@", errors.get(1).getInvalidValue());
-    }
-
-    @Test
-    void testValidateColumn_IdValidation() {
-        List<String> idData = Arrays.asList(
-            "ABC123",
-            "ID-001",
-            "123456",
-            "ID 002"
-        );
-
-        List<ValidationResult.ValidationError> errors = validationService.validateColumn(
-            "ID", idData, ValidationService.ValidationType.ID
-        );
-
-        assertEquals(2, errors.size());
-        assertEquals("ID-001", errors.get(0).getInvalidValue());
-        assertEquals("ID 002", errors.get(1).getInvalidValue());
-    }
-
-    @Test
-    void testValidateFile_InvalidFileFormat() {
-        assertThrows(ValidationRuleException.class, () -> {
-            validationService.validateFile(invalidFileFormat);
-        });
-    }
-
-    @Test
-    void testValidateFile_EmptyFile() {
-        MockMultipartFile emptyFile = new MockMultipartFile(
-            "file", 
-            "empty.xlsx", 
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
-            new byte[0]
-        );
-
-        assertThrows(ValidationRuleException.class, () -> {
-            validationService.validateFile(emptyFile);
-        });
-    }
-
-    @Test
-    void testValidateFile_NullFilename() {
-        MockMultipartFile nullFilenameFile = new MockMultipartFile(
-            "file", 
-            null, 
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
-            "content".getBytes()
-        );
-
-        assertThrows(ValidationRuleException.class, () -> {
-            validationService.validateFile(nullFilenameFile);
-        });
-    }
-
-    /**
-     * Creates a valid Excel file content for testing
-     * 
-     * @return byte array containing Excel file content
-     */
-    private byte[] createValidExcelContent() {
-        // This is a simplified implementation
-        // In a real test, you would create an actual Excel file with test data
-        // For now, we'll return a minimal Excel file structure
+        // Act
+        ValidationResponse response = validationService.validateFile(1L);
         
-        try {
-            // Create a simple Excel workbook with test data
-            org.apache.poi.ss.usermodel.Workbook workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook();
-            org.apache.poi.ss.usermodel.Sheet sheet = workbook.createSheet("Test Data");
-            
-            // Create header row
-            org.apache.poi.ss.usermodel.Row headerRow = sheet.createRow(0);
-            headerRow.createCell(0).setCellValue("Email");
-            headerRow.createCell(1).setCellValue("Date");
-            headerRow.createCell(2).setCellValue("Name");
-            headerRow.createCell(3).setCellValue("ID");
-            
-            // Create data rows
-            org.apache.poi.ss.usermodel.Row dataRow1 = sheet.createRow(1);
-            dataRow1.createCell(0).setCellValue("test@example.com");
-            dataRow1.createCell(1).setCellValue("2024-01-01");
-            dataRow1.createCell(2).setCellValue("John Doe");
-            dataRow1.createCell(3).setCellValue("ID001");
-            
-            org.apache.poi.ss.usermodel.Row dataRow2 = sheet.createRow(2);
-            dataRow2.createCell(0).setCellValue("invalid-email");
-            dataRow2.createCell(1).setCellValue("2024-13-01");
-            dataRow2.createCell(2).setCellValue("Jane123");
-            dataRow2.createCell(3).setCellValue("ID-002");
-            
-            // Write to byte array
-            java.io.ByteArrayOutputStream outputStream = new java.io.ByteArrayOutputStream();
-            workbook.write(outputStream);
-            workbook.close();
-            
-            return outputStream.toByteArray();
-            
-        } catch (Exception e) {
-            // Return a minimal Excel file if creation fails
-            return new byte[]{0x50, 0x4B, 0x03, 0x04}; // ZIP header (Excel files are ZIP archives)
-        }
+        // Assert
+        assertNotNull(response);
+        assertEquals("SUCCESS", response.getStatus());
+        assertEquals("File validated successfully", response.getMessage());
+        assertEquals(3, response.getTotalRows());
+        assertEquals(3, response.getValidRows());
+        assertEquals(0, response.getInvalidRows());
+        assertNull(response.getUpdatedFileUrl());
+        
+        verify(fileMetadataRepository).findById(1L);
+        verify(blobStorageService).downloadFile(testFileMetadata.getFileUrl());
+        verify(excelProcessingService).readExcelFile(any());
+    }
+    
+    @Test
+    void validateFile_WithValidationErrors() {
+        // Arrange
+        List<SalesRecord> recordsWithErrors = Arrays.asList(
+            new SalesRecord("ID001", LocalDate.now(), "dine_in", new BigDecimal("25.50"), null),
+            new SalesRecord("ID002", LocalDate.now(), "invalid_mode", new BigDecimal("15.75"), null),
+            new SalesRecord("ID003", LocalDate.now(), "take_away", new BigDecimal("30.00"), null)
+        );
+        
+        when(fileMetadataRepository.findById(1L)).thenReturn(Optional.of(testFileMetadata));
+        when(blobStorageService.downloadFile(anyString())).thenReturn(new ByteArrayInputStream("test".getBytes()));
+        when(excelProcessingService.readExcelFile(any())).thenReturn(recordsWithErrors);
+        when(validator.validate(any(SalesRecord.class))).thenReturn(Collections.emptySet());
+        when(blobStorageService.uploadFile(anyString(), any())).thenReturn("https://storage.blob.core.windows.net/container/updated_file.xlsx");
+        
+        // Act
+        ValidationResponse response = validationService.validateFile(1L);
+        
+        // Assert
+        assertNotNull(response);
+        assertEquals("VALIDATED_WITH_ERRORS", response.getStatus());
+        assertEquals("File validated with errors. Check the updated file for details.", response.getMessage());
+        assertEquals(3, response.getTotalRows());
+        assertEquals(2, response.getValidRows());
+        assertEquals(1, response.getInvalidRows());
+        assertNotNull(response.getUpdatedFileUrl());
+        
+        verify(blobStorageService).uploadFile(anyString(), any());
+    }
+    
+    @Test
+    void validateFile_FileMetadataNotFound() {
+        // Arrange
+        when(fileMetadataRepository.findById(1L)).thenReturn(Optional.empty());
+        
+        // Act & Assert
+        FileValidationException exception = assertThrows(FileValidationException.class, 
+            () -> validationService.validateFile(1L));
+        
+        assertEquals("File metadata not found with ID: 1", exception.getMessage());
+        verify(fileMetadataRepository).findById(1L);
+        verifyNoInteractions(blobStorageService, excelProcessingService);
+    }
+    
+    @Test
+    void validateFile_DownloadError() {
+        // Arrange
+        when(fileMetadataRepository.findById(1L)).thenReturn(Optional.of(testFileMetadata));
+        when(blobStorageService.downloadFile(anyString())).thenThrow(new FileValidationException("Download failed"));
+        
+        // Act & Assert
+        FileValidationException exception = assertThrows(FileValidationException.class, 
+            () -> validationService.validateFile(1L));
+        
+        assertEquals("Validation failed: Download failed", exception.getMessage());
+        verify(fileMetadataRepository).findById(1L);
+        verify(blobStorageService).downloadFile(testFileMetadata.getFileUrl());
+        verifyNoInteractions(excelProcessingService);
+    }
+    
+    @Test
+    void validateFile_ExcelProcessingError() {
+        // Arrange
+        when(fileMetadataRepository.findById(1L)).thenReturn(Optional.of(testFileMetadata));
+        when(blobStorageService.downloadFile(anyString())).thenReturn(new ByteArrayInputStream("test".getBytes()));
+        when(excelProcessingService.readExcelFile(any())).thenThrow(new FileValidationException("Excel processing failed"));
+        
+        // Act & Assert
+        FileValidationException exception = assertThrows(FileValidationException.class, 
+            () -> validationService.validateFile(1L));
+        
+        assertEquals("Validation failed: Excel processing failed", exception.getMessage());
+        verify(fileMetadataRepository).findById(1L);
+        verify(blobStorageService).downloadFile(testFileMetadata.getFileUrl());
+        verify(excelProcessingService).readExcelFile(any());
+    }
+    
+    @Test
+    void validateFile_WithBeanValidationErrors() {
+        // Arrange
+        Set<ConstraintViolation<SalesRecord>> violations = new HashSet<>();
+        ConstraintViolation<SalesRecord> violation = mock(ConstraintViolation.class);
+        when(violation.getPropertyPath()).thenReturn(mock(javax.validation.Path.class));
+        when(violation.getMessage()).thenReturn("ID is required");
+        violations.add(violation);
+        
+        when(fileMetadataRepository.findById(1L)).thenReturn(Optional.of(testFileMetadata));
+        when(blobStorageService.downloadFile(anyString())).thenReturn(new ByteArrayInputStream("test".getBytes()));
+        when(excelProcessingService.readExcelFile(any())).thenReturn(testSalesRecords);
+        when(validator.validate(any(SalesRecord.class))).thenReturn(violations);
+        when(blobStorageService.uploadFile(anyString(), any())).thenReturn("https://storage.blob.core.windows.net/container/updated_file.xlsx");
+        
+        // Act
+        ValidationResponse response = validationService.validateFile(1L);
+        
+        // Assert
+        assertNotNull(response);
+        assertEquals("VALIDATED_WITH_ERRORS", response.getStatus());
+        assertEquals(3, response.getTotalRows());
+        assertEquals(0, response.getValidRows());
+        assertEquals(3, response.getInvalidRows());
+        
+        verify(blobStorageService).uploadFile(anyString(), any());
     }
 } 

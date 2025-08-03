@@ -1,114 +1,183 @@
 package com.example.filevalidation.service;
 
-import com.example.filevalidation.model.ValidationResult;
-import org.springframework.web.multipart.MultipartFile;
+import com.example.filevalidation.dto.ValidationResponse;
+import com.example.filevalidation.exception.FileValidationException;
+import com.example.filevalidation.model.FileMetadata;
+import com.example.filevalidation.model.SalesRecord;
+import com.example.filevalidation.repository.FileMetadataRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
 
+import javax.validation.ConstraintViolation;
+import javax.validation.Validator;
+import java.io.InputStream;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * Validation Service Interface
- * 
- * This interface defines the contract for file validation operations.
- * It provides methods for validating Excel files with various data types
- * including email, date, name, and ID validation.
- * 
- * Business Operations:
- * - Excel file validation with row-level error tracking
- * - Data type validation (email, date, name, ID)
- * - Error reporting with detailed information
- * - Optional column handling
- * 
- * Validation Rules:
- * - Email: Must be a valid email format
- * - Date: Must be a valid date format
- * - Name: Must contain only letters and spaces
- * - ID: Must be alphanumeric
- * 
- * @author File Validation Team
- * @version 1.0.0
- * @since 2024-01-01
+ * Main service for file validation
+ * Orchestrates the entire validation process including file download, validation, and upload
  */
-public interface ValidationService {
-
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class ValidationService {
+    
+    private final FileMetadataRepository fileMetadataRepository;
+    private final BlobStorageService blobStorageService;
+    private final ExcelProcessingService excelProcessingService;
+    private final Validator validator;
+    
     /**
-     * Validates an uploaded Excel file
-     * 
-     * This method processes the uploaded file, validates each row according to
-     * the specified validation rules, and returns a comprehensive validation result.
-     * 
-     * @param file The uploaded Excel file to validate
-     * @return ValidationResult containing validation status and error details
-     * @throws com.example.filevalidation.exception.FileValidationException if validation fails
+     * Validate Excel file by file metadata ID
+     * @param fileMetadataId The ID of the file metadata to validate
+     * @return ValidationResponse with results
      */
-    ValidationResult validateFile(MultipartFile file);
-
+    public ValidationResponse validateFile(Long fileMetadataId) {
+        long startTime = System.currentTimeMillis();
+        
+        try {
+            log.info("Starting validation for file metadata ID: {}", fileMetadataId);
+            
+            // Get file metadata from database
+            FileMetadata fileMetadata = getFileMetadata(fileMetadataId);
+            
+            // Download file from blob storage
+            InputStream fileInputStream = blobStorageService.downloadFile(fileMetadata.getFileUrl());
+            
+            // Read and validate Excel file
+            List<SalesRecord> salesRecords = excelProcessingService.readExcelFile(fileInputStream);
+            
+            // Validate sales records
+            List<SalesRecord> validatedRecords = validateSalesRecords(salesRecords);
+            
+            // Count validation results
+            int totalRows = validatedRecords.size();
+            int validRows = (int) validatedRecords.stream()
+                    .filter(record -> record.getErrorMessage() == null)
+                    .count();
+            int invalidRows = totalRows - validRows;
+            
+            // Generate updated file if there are errors
+            String updatedFileUrl = null;
+            if (invalidRows > 0) {
+                updatedFileUrl = createUpdatedFile(fileMetadata, validatedRecords);
+            }
+            
+            // Calculate processing time
+            long processingTime = System.currentTimeMillis() - startTime;
+            String processingTimeStr = String.format("%.2f seconds", processingTime / 1000.0);
+            
+            log.info("Validation completed. Total: {}, Valid: {}, Invalid: {}", 
+                    totalRows, validRows, invalidRows);
+            
+            // Return appropriate response
+            if (invalidRows == 0) {
+                return ValidationResponse.success(updatedFileUrl, totalRows, validRows, invalidRows, processingTimeStr);
+            } else {
+                return ValidationResponse.withErrors(updatedFileUrl, totalRows, validRows, invalidRows, processingTimeStr);
+            }
+            
+        } catch (Exception e) {
+            log.error("Error during validation for file metadata ID: {}", fileMetadataId, e);
+            throw new FileValidationException("Validation failed: " + e.getMessage(), e);
+        }
+    }
+    
     /**
-     * Validates a specific column in the Excel file
-     * 
-     * @param columnName Name of the column to validate
-     * @param columnData List of values in the column
-     * @param validationType Type of validation to perform (EMAIL, DATE, NAME, ID)
-     * @return List of validation errors for the column
+     * Get file metadata by ID
+     * @param fileMetadataId The file metadata ID
+     * @return FileMetadata object
      */
-    List<ValidationResult.ValidationError> validateColumn(String columnName, 
-                                                        List<String> columnData, 
-                                                        ValidationType validationType);
-
+    private FileMetadata getFileMetadata(Long fileMetadataId) {
+        return fileMetadataRepository.findById(fileMetadataId)
+                .orElseThrow(() -> new FileValidationException(
+                    "File metadata not found with ID: " + fileMetadataId));
+    }
+    
     /**
-     * Validates an email address
-     * 
-     * @param email Email address to validate
-     * @return true if valid, false otherwise
+     * Validate sales records and add error messages
+     * @param salesRecords List of sales records to validate
+     * @return List of validated sales records with error messages
      */
-    boolean isValidEmail(String email);
-
+    private List<SalesRecord> validateSalesRecords(List<SalesRecord> salesRecords) {
+        return salesRecords.stream()
+                .map(this::validateSalesRecord)
+                .collect(Collectors.toList());
+    }
+    
     /**
-     * Validates a date string
-     * 
-     * @param date Date string to validate
-     * @param format Expected date format (e.g., "yyyy-MM-dd")
-     * @return true if valid, false otherwise
+     * Validate individual sales record
+     * @param record The sales record to validate
+     * @return Validated sales record with error message if any
      */
-    boolean isValidDate(String date, String format);
-
+    private SalesRecord validateSalesRecord(SalesRecord record) {
+        StringBuilder errorMessages = new StringBuilder();
+        
+        // Validate using Bean Validation annotations
+        Set<ConstraintViolation<SalesRecord>> violations = validator.validate(record);
+        for (ConstraintViolation<SalesRecord> violation : violations) {
+            if (errorMessages.length() > 0) {
+                errorMessages.append("; ");
+            }
+            errorMessages.append(violation.getPropertyPath()).append(": ").append(violation.getMessage());
+        }
+        
+        // Validate sale mode
+        if (record.getSaleMode() != null && !record.isValidSaleMode()) {
+            if (errorMessages.length() > 0) {
+                errorMessages.append("; ");
+            }
+            errorMessages.append(record.getSaleModeErrorMessage());
+        }
+        
+        // Validate sale date (not in the past)
+        if (record.getSaleDate() != null && record.getSaleDate().isBefore(LocalDateTime.now().toLocalDate())) {
+            if (errorMessages.length() > 0) {
+                errorMessages.append("; ");
+            }
+            errorMessages.append("Sale date cannot be in the past");
+        }
+        
+        // Set error message if any validation failed
+        if (errorMessages.length() > 0) {
+            record.setErrorMessage(errorMessages.toString());
+        }
+        
+        return record;
+    }
+    
     /**
-     * Validates a name string
-     * 
-     * @param name Name string to validate
-     * @return true if valid, false otherwise
+     * Create updated file with error messages and upload to blob storage
+     * @param fileMetadata Original file metadata
+     * @param validatedRecords Validated sales records with error messages
+     * @return URL of the updated file
      */
-    boolean isValidName(String name);
-
-    /**
-     * Validates an ID string
-     * 
-     * @param id ID string to validate
-     * @return true if valid, false otherwise
-     */
-    boolean isValidId(String id);
-
-    /**
-     * Gets the list of required columns for validation
-     * 
-     * @return List of required column names
-     */
-    List<String> getRequiredColumns();
-
-    /**
-     * Gets the list of optional columns (not validated)
-     * 
-     * @return List of optional column names
-     */
-    List<String> getOptionalColumns();
-
-    /**
-     * Validation Type Enumeration
-     */
-    enum ValidationType {
-        EMAIL,
-        DATE,
-        NAME,
-        ID,
-        OPTIONAL
+    private String createUpdatedFile(FileMetadata fileMetadata, List<SalesRecord> validatedRecords) {
+        try {
+            // Create updated Excel file with error messages
+            byte[] updatedFileData = excelProcessingService.writeExcelFileWithErrors(validatedRecords);
+            
+            // Generate new filename with timestamp
+            String originalFileName = fileMetadata.getFileName();
+            String fileExtension = originalFileName.substring(originalFileName.lastIndexOf("."));
+            String fileNameWithoutExtension = originalFileName.substring(0, originalFileName.lastIndexOf("."));
+            String updatedFileName = fileNameWithoutExtension + "_validated_" + 
+                    LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + 
+                    fileExtension;
+            
+            // Upload updated file to blob storage
+            String updatedFileUrl = blobStorageService.uploadFile(updatedFileName, updatedFileData);
+            
+            log.info("Created updated file: {} with URL: {}", updatedFileName, updatedFileUrl);
+            return updatedFileUrl;
+            
+        } catch (Exception e) {
+            log.error("Error creating updated file", e);
+            throw new FileValidationException("Failed to create updated file: " + e.getMessage(), e);
+        }
     }
 } 
