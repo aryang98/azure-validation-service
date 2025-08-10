@@ -16,13 +16,14 @@
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <azure.functions.java.library.version>3.0.0</azure.functions.java.library.version>
+        <spring.cloud.function.version>4.0.4</spring.cloud.function.version>
+        <spring.cloud.azure.version>5.3.0</spring.cloud.azure.version>
         <azure.functions.maven.plugin.version>1.18.0</azure.functions.maven.plugin.version>
         <azure.storage.blob.version>12.21.1</azure.storage.blob.version>
         <apache.poi.version>5.2.3</apache.poi.version>
         <opencsv.version>5.7.1</opencsv.version>
-        <spring.boot.version>2.7.14</spring.boot.version>
-        <spring.data.jpa.version>2.7.14</spring.data.jpa.version>
+        <spring.boot.version>3.1.5</spring.boot.version>
+        <spring.data.jpa.version>3.1.5</spring.data.jpa.version>
         <mssql.jdbc.version>12.2.0.jre11</mssql.jdbc.version>
         <jackson.version>2.15.2</jackson.version>
         <slf4j.version>2.0.7</slf4j.version>
@@ -37,15 +38,27 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>2022.0.4</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
-        <!-- Azure Functions -->
+        <!-- Spring Cloud Function Azure Adapter -->
         <dependency>
-            <groupId>com.microsoft.azure.functions</groupId>
-            <artifactId>azure-functions-java-library</artifactId>
-            <version>${azure.functions.java.library.version}</version>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-function-adapter-azure</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Starter Web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
         <!-- Azure Blob Storage -->

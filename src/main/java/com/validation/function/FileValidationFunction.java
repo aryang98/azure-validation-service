@@ -1,14 +1,6 @@
 package com.validation.function;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.microsoft.azure.functions.ExecutionContext;
-import com.microsoft.azure.functions.HttpMethod;
-import com.microsoft.azure.functions.HttpRequestMessage;
-import com.microsoft.azure.functions.HttpResponseMessage;
-import com.microsoft.azure.functions.HttpStatus;
-import com.microsoft.azure.functions.annotation.AuthorizationLevel;
-import com.microsoft.azure.functions.annotation.FunctionName;
-import com.microsoft.azure.functions.annotation.HttpTrigger;
 import com.validation.dto.ValidationRequest;
 import com.validation.dto.ValidationResponse;
 import com.validation.exception.FileNotFoundException;
@@ -18,19 +10,25 @@ import com.validation.handler.ValidationHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
+import org.springframework.cloud.function.adapter.azure.AzureSpringBootRequestHandler;
 
-import java.util.Optional;
+import java.util.Map;
+import java.util.function.Function;
 
 /**
- * Azure Function for file validation service.
+ * Azure Function using Spring Cloud Function approach.
  * 
- * This is the main entry point for the file validation service. It handles HTTP requests
- * to validate Excel (.xlsx) and CSV files stored in Azure Blob Storage.
+ * This function uses Spring Cloud Function Adapter for Azure, which provides:
+ * - Better Spring Boot integration
+ * - Easier testing capabilities
+ * - Simplified function development
+ * - Native Spring dependency injection
  * 
  * Function Details:
  * - HTTP Trigger: POST /api/validate
- * - Authorization: Function level (requires function key)
  * - Input: JSON request body with filename
  * - Output: JSON response with validation results
  * 
@@ -46,7 +44,7 @@ import java.util.Optional;
  * - 500 Internal Server Error: Unexpected errors during processing
  */
 @Component
-public class FileValidationFunction {
+public class FileValidationFunction implements Function<Map<String, Object>, ResponseEntity<Object>> {
     
     private static final Logger logger = LoggerFactory.getLogger(FileValidationFunction.class);
     
@@ -67,7 +65,7 @@ public class FileValidationFunction {
     }
     
     /**
-     * Main Azure Function entry point for file validation.
+     * Main function entry point for file validation.
      * 
      * This function handles HTTP POST requests to validate files stored in Azure Blob Storage.
      * It processes the request, delegates to the validation handler, and returns appropriate
@@ -119,57 +117,51 @@ public class FileValidationFunction {
      * ```
      * 
      * @param request HTTP request containing the validation request
-     * @param context Azure Functions execution context
-     * @return HTTP response with validation results or error details
+     * @return ResponseEntity with validation results or error details
      */
-    @FunctionName("validateFile")
-    public HttpResponseMessage run(
-            @HttpTrigger(
-                name = "req",
-                methods = {HttpMethod.POST},
-                authLevel = AuthorizationLevel.FUNCTION,
-                route = "validate"
-            ) HttpRequestMessage<Optional<String>> request,
-            final ExecutionContext context) {
-        
+    @Override
+    public ResponseEntity<Object> apply(Map<String, Object> request) {
         logger.info("File validation function triggered");
         
         try {
             // Step 1: Extract and validate request body
-            String requestBody = request.getBody().orElseThrow(() -> 
-                new ValidationException("Request body is required"));
+            if (request == null || !request.containsKey("filename")) {
+                throw new ValidationException("Request body is required and must contain 'filename' field");
+            }
             
-            // Step 2: Parse request body to ValidationRequest object
-            ValidationRequest validationRequest = validationHandler.parseRequest(requestBody);
+            String filename = (String) request.get("filename");
+            if (filename == null || filename.trim().isEmpty()) {
+                throw new ValidationException("Filename is required");
+            }
+            
+            // Step 2: Create ValidationRequest object
+            ValidationRequest validationRequest = new ValidationRequest(filename);
             
             // Step 3: Process validation using the handler
             ValidationResponse response = validationHandler.handleValidationRequest(validationRequest);
             
             // Step 4: Return success response
-            return request.createResponseBuilder(HttpStatus.OK)
-                    .header("Content-Type", "application/json")
-                    .body(response)
-                    .build();
+            return ResponseEntity.ok(response);
                     
         } catch (ValidationException e) {
             // Handle validation errors (invalid request format, validation failures)
             logger.error("Validation error: {}", e.getMessage());
-            return createErrorResponse(request, HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", e.getMessage());
+            return createErrorResponse(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", e.getMessage());
             
         } catch (FileNotFoundException e) {
             // Handle file not found errors
             logger.error("File not found: {}", e.getMessage());
-            return createErrorResponse(request, HttpStatus.NOT_FOUND, "FILE_NOT_FOUND", e.getMessage());
+            return createErrorResponse(HttpStatus.NOT_FOUND, "FILE_NOT_FOUND", e.getMessage());
             
         } catch (UnsupportedFileTypeException e) {
             // Handle unsupported file type errors
             logger.error("Unsupported file type: {}", e.getMessage());
-            return createErrorResponse(request, HttpStatus.BAD_REQUEST, "UNSUPPORTED_FILE_TYPE", e.getMessage());
+            return createErrorResponse(HttpStatus.BAD_REQUEST, "UNSUPPORTED_FILE_TYPE", e.getMessage());
             
         } catch (Exception e) {
             // Handle unexpected errors
             logger.error("Unexpected error during file validation", e);
-            return createErrorResponse(request, HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", 
+            return createErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", 
                     "An unexpected error occurred while processing the request");
         }
     }
@@ -180,29 +172,23 @@ public class FileValidationFunction {
      * This method ensures consistent error response format across all error scenarios.
      * It includes error code, message, and timestamp for proper error tracking and debugging.
      * 
-     * @param request The original HTTP request
      * @param status HTTP status code for the error
      * @param errorCode Application-specific error code
      * @param message Human-readable error message
-     * @return HTTP response with error details
+     * @return ResponseEntity with error details
      */
-    private HttpResponseMessage createErrorResponse(HttpRequestMessage<Optional<String>> request, 
-                                                  HttpStatus status, String errorCode, String message) {
+    private ResponseEntity<Object> createErrorResponse(HttpStatus status, String errorCode, String message) {
         try {
             // Create standardized error response object
             ErrorResponse errorResponse = new ErrorResponse(errorCode, message);
             
-            // Build HTTP response with error details
-            return request.createResponseBuilder(status)
-                    .header("Content-Type", "application/json")
-                    .body(errorResponse)
-                    .build();
+            // Return HTTP response with error details
+            return ResponseEntity.status(status).body(errorResponse);
         } catch (Exception e) {
             // Fallback error response if error response creation fails
             logger.error("Failed to create error response", e);
-            return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Internal server error")
-                    .build();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Internal server error");
         }
     }
     
