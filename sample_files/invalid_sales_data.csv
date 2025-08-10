@@ -1,0 +1,18 @@
+id,date,sellType,name,price
+1,2023-12-01,retail,Product A,100.00
+2,invalid-date,wholesale,Product B,200.00
+3,2023-12-03,,Product C,150.00
+4,2023-12-04,wholesale,,300.00
+5,2023-12-05,retail,Product E,75.50
+abc,2023-12-06,retail,Product F,50.00
+6,2023-12-07,retail,Product G, 
+
+# Expected Output (ALL DATA PRESERVED):
+# id,date,sellType,name,price,ErrorDetails
+# 1,2023-12-01,retail,Product A,100.00,
+# 5,2023-12-05,retail,Product E,75.50,
+# 2,invalid-date,wholesale,Product B,200.00,date: Invalid date format (expected yyyy-MM-dd)
+# 3,2023-12-03,,Product C,150.00,sellType: Required field is empty
+# 4,2023-12-04,wholesale,,300.00,name: Required field is empty
+# abc,2023-12-06,retail,Product F,50.00,id: Must be numeric
+# 6,2023-12-07,retail,Product G,,price: Required field is empty 
