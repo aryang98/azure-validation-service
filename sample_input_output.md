@@ -93,7 +93,7 @@ Content-Type: application/json
 **Notes**:
 - **All original data preserved** - no data is removed or modified
 - Invalid cells highlighted in **yellow background**
-- ErrorDetails column added with specific error messages
+- ErrorDetails column added with specific error messages (comma-separated for multiple errors)
 - File uploaded to blob storage
 - Download URL provided
 
@@ -139,7 +139,7 @@ abc,2023-12-06,retail,Product F,50.00,id: Must be numeric
 
 **Notes**:
 - **All original data preserved** - no data is removed or modified
-- ErrorDetails column added with specific error messages
+- ErrorDetails column added with specific error messages (comma-separated for multiple errors)
 - Valid rows show empty ErrorDetails column
 - File uploaded to blob storage
 - Download URL provided
@@ -325,3 +325,21 @@ SELECT * FROM validation_metadata WHERE status = 'ERROR';
 | id | file_name | total_rows | valid_rows | invalid_rows | status | uploaded_at | processed_at | output_file_name | error_message |
 |----|-----------|------------|------------|--------------|--------|-------------|--------------|------------------|---------------|
 | 3 | invalid_file.xlsx | 0 | 0 | 0 | ERROR | 2023-12-01 14:30:22 | 2023-12-01 14:30:22 | NULL | Required column not found: sellType | 
+
+### Example: Multiple Errors in One Row
+
+**Input Row with Multiple Issues:**
+```
+| abc | invalid-date |   |   | invalid-price |
+```
+
+**ErrorDetails Column Output:**
+```
+id: Must be numeric, date: Invalid date format (expected yyyy-MM-dd), sellType: Required field is empty, name: Required field is empty, price: Required field is empty
+```
+
+**Notes:**
+- Multiple validation errors are separated by commas
+- Each error follows the format: "fieldName: error description"
+- All errors for the row are listed in a single cell
+- Easy to read and parse for further processing 

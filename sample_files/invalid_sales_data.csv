@@ -15,4 +15,7 @@ abc,2023-12-06,retail,Product F,50.00
 # 3,2023-12-03,,Product C,150.00,sellType: Required field is empty
 # 4,2023-12-04,wholesale,,300.00,name: Required field is empty
 # abc,2023-12-06,retail,Product F,50.00,id: Must be numeric
-# 6,2023-12-07,retail,Product G,,price: Required field is empty 
+# 6,2023-12-07,retail,Product G,,price: Required field is empty
+
+# Example with multiple errors in one row:
+# abc,invalid-date,,,invalid-price,id: Must be numeric, date: Invalid date format (expected yyyy-MM-dd), sellType: Required field is empty, name: Required field is empty, price: Required field is empty 

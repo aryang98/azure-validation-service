@@ -364,7 +364,7 @@ public class FileValidationServiceImpl implements FileValidationService {
                     Cell errorCell = row.createCell(headerRow.getLastCellNum());
                     
                     if (!errors.isEmpty()) {
-                        errorCell.setCellValue(String.join("; ", errors));
+                        errorCell.setCellValue(String.join(", ", errors));
                     } else {
                         errorCell.setCellValue(""); // Empty for valid rows
                     }
@@ -463,7 +463,7 @@ public class FileValidationServiceImpl implements FileValidationService {
                     
                     String[] newRow = Arrays.copyOf(originalRow, originalRow.length + 1);
                     if (!errors.isEmpty()) {
-                        newRow[originalRow.length] = String.join("; ", errors);
+                        newRow[originalRow.length] = String.join(", ", errors);
                     } else {
                         newRow[originalRow.length] = ""; // Empty for valid rows
                     }
