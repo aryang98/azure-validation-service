@@ -1,0 +1,11 @@
+id,date,sellType,name,price
+1,2023-12-01,retail,Product A,100.00
+2,12/01/2023,wholesale,Product B,200.00
+3,2023-13-45,retail,Product C,150.00
+4,2023-12-04,wholesale,,300.00
+abc,2023-12-05,retail,Product E,75.50
+6,2023-12-06,retail,Product F,
+7,invalid-date,wholesale,Product G,250.00
+8,2023-12-08,,Product H,180.00
+9,2023-12-09,retail,,90.00
+xyz,2023-12-10,retail,Product J,120.00 
