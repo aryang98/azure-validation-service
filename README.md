@@ -1,17 +1,31 @@
 # Azure File Validation Service
 
-A production-ready Azure Function service that validates Excel (.xlsx) and CSV files stored in Azure Blob Storage. The service performs row-by-row validation, highlights invalid cells, and provides detailed error reporting.
+A production-ready Azure Function service that validates Excel (.xlsx) and CSV files stored in Azure Blob Storage. The service performs streaming validation and only modifies files when errors are detected.
 
 ## Features
 
 - **Streaming File Processing**: Processes large files without loading them entirely into memory
+- **Smart File Modification**: Only modifies and uploads files when validation errors are found
 - **Multi-format Support**: Handles both Excel (.xlsx) and CSV files
 - **Comprehensive Validation**: Validates required fields, data types, and formats
-- **Visual Error Highlighting**: Highlights invalid cells in yellow in Excel output
-- **Error Details**: Adds an ErrorDetails column with specific validation failures
+- **Visual Error Highlighting**: Highlights invalid cells in yellow in Excel output (only when errors exist)
+- **Error Details**: Adds an ErrorDetails column with specific validation failures (only when errors exist)
 - **Azure Integration**: Seamless integration with Azure Blob Storage and SQL Server
-- **SAS URL Generation**: Provides secure, time-limited download URLs
+- **Conditional SAS URL Generation**: Provides secure, time-limited download URLs only when errors are found
 - **Metadata Persistence**: Stores validation results in SQL Server for audit trails
+- **Execution Time Tracking**: Measures and reports processing time for all validations
+
+## Behavior
+
+### When No Errors Are Found:
+- **Response**: Simple success response with status, message, total rows, and execution time
+- **File**: No file modification or upload
+- **Performance**: Optimized for speed with minimal processing overhead
+
+### When Errors Are Found:
+- **Response**: Detailed response with validation statistics, download URL, and execution time
+- **File**: Modified file uploaded to blob storage with error highlighting and ErrorDetails column
+- **Download**: SAS URL provided for secure file download
 
 ## Architecture
 
@@ -105,15 +119,29 @@ POST /api/validate
 }
 ```
 
-### Response Format
+### Response Format - No Errors
 ```json
 {
   "status": "SUCCESS",
-  "message": "File validation completed successfully",
+  "message": "File validation completed successfully - no errors found",
+  "totalRows": 1000,
+  "validRows": 1000,
+  "invalidRows": 0,
+  "executionTimeMs": 1250,
+  "processedAt": "2023-12-01T14:30:22"
+}
+```
+
+### Response Format - With Errors
+```json
+{
+  "status": "COMPLETED_WITH_ERRORS",
+  "message": "File validation completed with errors. Download the corrected file using the provided URL.",
   "totalRows": 1000,
   "validRows": 950,
   "invalidRows": 50,
   "downloadUrl": "https://yourstorage.blob.core.windows.net/container/filename_validated_20231201_143022.xlsx?sv=2020-08-04&ss=bfqt&srt=sco&sp=r&se=2023-12-02T14:30:22Z&st=2023-12-01T06:30:22Z&spr=https&sig=...",
+  "executionTimeMs": 1850,
   "processedAt": "2023-12-01T14:30:22"
 }
 ```
@@ -201,7 +229,8 @@ The service handles various error scenarios:
 ## Performance Considerations
 
 - **Streaming Processing**: Files are processed row-by-row to minimize memory usage
-- **Batch Processing**: Large files are processed in configurable batches
+- **Conditional File Processing**: Only processes and uploads files when errors are detected
+- **Optimized Success Path**: Fast response times for files with no validation errors
 - **Connection Pooling**: Database connections are pooled for optimal performance
 - **Async Processing**: Non-blocking I/O operations where possible
 
@@ -213,12 +242,13 @@ The service includes comprehensive logging:
 - Validation statistics
 - Error tracking
 - Performance metrics
+- Execution time monitoring
 
 Logs are automatically integrated with Azure Application Insights when deployed.
 
 ## Security
 
-- **SAS URLs**: Time-limited, secure download URLs
+- **Conditional SAS URLs**: Time-limited, secure download URLs only when needed
 - **Input Validation**: Comprehensive request validation
 - **SQL Injection Protection**: Parameterized queries via JPA
 - **File Size Limits**: Configurable maximum file size limits

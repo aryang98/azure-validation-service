@@ -55,6 +55,7 @@ public class FileValidationServiceImpl implements FileValidationService {
     
     @Override
     public ValidationResponse validateFile(ValidationRequest request) {
+        long startTime = System.currentTimeMillis();
         String filename = request.getFilename();
         
         if (!isFileSupported(filename)) {
@@ -77,39 +78,67 @@ public class FileValidationServiceImpl implements FileValidationService {
                 result = validateCsvFile(inputStream);
             }
             
-            // Upload processed file
-            String outputFilename = generateOutputFilename(filename, fileExtension);
-            try (InputStream processedStream = new ByteArrayInputStream(result.getProcessedData())) {
-                blobStorageService.uploadFile(outputFilename, processedStream, result.getProcessedData().length);
+            long executionTime = System.currentTimeMillis() - startTime;
+            
+            // If no errors, return simple success response
+            if (result.getInvalidRows() == 0) {
+                // Save metadata for successful validation
+                ValidationMetadata metadata = new ValidationMetadata(
+                        filename,
+                        result.getTotalRows(),
+                        result.getValidRows(),
+                        result.getInvalidRows(),
+                        "SUCCESS",
+                        LocalDateTime.now(),
+                        LocalDateTime.now(),
+                        null,
+                        null
+                );
+                metadataService.saveValidationMetadata(metadata);
+                
+                return new ValidationResponse(
+                        "SUCCESS",
+                        "File validation completed successfully - no errors found",
+                        result.getTotalRows(),
+                        executionTime
+                );
+            } else {
+                // Errors found - upload modified file and return download URL
+                String outputFilename = generateOutputFilename(filename, fileExtension);
+                try (InputStream processedStream = new ByteArrayInputStream(result.getProcessedData())) {
+                    blobStorageService.uploadFile(outputFilename, processedStream, result.getProcessedData().length);
+                }
+                
+                // Generate SAS URL
+                String downloadUrl = blobStorageService.generateSasUrl(outputFilename, sasExpiryHours);
+                
+                // Save metadata
+                ValidationMetadata metadata = new ValidationMetadata(
+                        filename,
+                        result.getTotalRows(),
+                        result.getValidRows(),
+                        result.getInvalidRows(),
+                        "COMPLETED_WITH_ERRORS",
+                        LocalDateTime.now(),
+                        LocalDateTime.now(),
+                        outputFilename,
+                        null
+                );
+                metadataService.saveValidationMetadata(metadata);
+                
+                return new ValidationResponse(
+                        "COMPLETED_WITH_ERRORS",
+                        "File validation completed with errors. Download the corrected file using the provided URL.",
+                        result.getTotalRows(),
+                        result.getValidRows(),
+                        result.getInvalidRows(),
+                        downloadUrl,
+                        executionTime
+                );
             }
             
-            // Generate SAS URL
-            String downloadUrl = blobStorageService.generateSasUrl(outputFilename, sasExpiryHours);
-            
-            // Save metadata
-            ValidationMetadata metadata = new ValidationMetadata(
-                    filename,
-                    result.getTotalRows(),
-                    result.getValidRows(),
-                    result.getInvalidRows(),
-                    "COMPLETED",
-                    LocalDateTime.now(),
-                    LocalDateTime.now(),
-                    outputFilename,
-                    null
-            );
-            metadataService.saveValidationMetadata(metadata);
-            
-            return new ValidationResponse(
-                    "SUCCESS",
-                    "File validation completed successfully",
-                    result.getTotalRows(),
-                    result.getValidRows(),
-                    result.getInvalidRows(),
-                    downloadUrl
-            );
-            
         } catch (Exception e) {
+            long executionTime = System.currentTimeMillis() - startTime;
             logger.error("Error validating file: {}", filename, e);
             
             // Save error metadata
@@ -172,6 +201,7 @@ public class FileValidationServiceImpl implements FileValidationService {
             int totalRows = sheet.getLastRowNum();
             int validRows = 0;
             int invalidRows = 0;
+            boolean hasErrors = false;
             
             // Process each row
             for (int rowIndex = 1; rowIndex <= totalRows; rowIndex++) {
@@ -184,6 +214,7 @@ public class FileValidationServiceImpl implements FileValidationService {
                     validRows++;
                 } else {
                     invalidRows++;
+                    hasErrors = true;
                     // Add error details to the last column
                     Cell errorCell = row.createCell(headerRow.getLastCellNum());
                     errorCell.setCellValue(String.join("; ", errors));
@@ -209,17 +240,21 @@ public class FileValidationServiceImpl implements FileValidationService {
                 }
             }
             
-            // Add ErrorDetails header if there were invalid rows
-            if (invalidRows > 0) {
+            // Only add ErrorDetails header if there were errors
+            if (hasErrors) {
                 Cell errorHeaderCell = headerRow.createCell(headerRow.getLastCellNum());
                 errorHeaderCell.setCellValue("ErrorDetails");
             }
             
-            // Write to byte array
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            workbook.write(outputStream);
+            // Write to byte array only if there were errors
+            byte[] processedData = null;
+            if (hasErrors) {
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                workbook.write(outputStream);
+                processedData = outputStream.toByteArray();
+            }
             
-            return new ValidationResult(totalRows, validRows, invalidRows, outputStream.toByteArray());
+            return new ValidationResult(totalRows, validRows, invalidRows, processedData);
         }
     }
     
@@ -250,6 +285,7 @@ public class FileValidationServiceImpl implements FileValidationService {
             int totalRows = 0;
             int validRows = 0;
             int invalidRows = 0;
+            boolean hasErrors = false;
             
             String[] row;
             while ((row = reader.readNext()) != null) {
@@ -261,6 +297,7 @@ public class FileValidationServiceImpl implements FileValidationService {
                     allRows.add(row);
                 } else {
                     invalidRows++;
+                    hasErrors = true;
                     // Add error details to the last column
                     String[] newRow = Arrays.copyOf(row, row.length + 1);
                     newRow[row.length] = String.join("; ", errors);
@@ -268,20 +305,24 @@ public class FileValidationServiceImpl implements FileValidationService {
                 }
             }
             
-            // Add ErrorDetails header if there were invalid rows
-            if (invalidRows > 0) {
+            // Only add ErrorDetails header if there were errors
+            if (hasErrors) {
                 String[] newHeaders = Arrays.copyOf(headers, headers.length + 1);
                 newHeaders[headers.length] = "ErrorDetails";
                 allRows.set(0, newHeaders);
             }
             
-            // Write to byte array
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            try (CSVWriter writer = new CSVWriter(new OutputStreamWriter(outputStream))) {
-                writer.writeAll(allRows);
+            // Write to byte array only if there were errors
+            byte[] processedData = null;
+            if (hasErrors) {
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                try (CSVWriter writer = new CSVWriter(new OutputStreamWriter(outputStream))) {
+                    writer.writeAll(allRows);
+                }
+                processedData = outputStream.toByteArray();
             }
             
-            return new ValidationResult(totalRows, validRows, invalidRows, outputStream.toByteArray());
+            return new ValidationResult(totalRows, validRows, invalidRows, processedData);
         }
     }
     
@@ -407,7 +448,7 @@ public class FileValidationServiceImpl implements FileValidationService {
         private final int totalRows;
         private final int validRows;
         private final int invalidRows;
-        private final byte[] processedData;
+        private final byte[] processedData; // null if no errors
         
         public ValidationResult(int totalRows, int validRows, int invalidRows, byte[] processedData) {
             this.totalRows = totalRows;
